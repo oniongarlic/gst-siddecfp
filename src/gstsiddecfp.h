@@ -60,9 +60,10 @@ struct _GstSidDecfp {
   gint           tune_number;
   guint64        total_bytes;
 
-  sidplay2       engine;
-  SidTuneMod     tune;
+  sidplay2       *engine;
+  SidTuneMod     *tune;
   sid2_config_t  config;
+  ReSIDfpBuilder *rs;
 
   gulong         blocksize;
 };

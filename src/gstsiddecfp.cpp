@@ -55,7 +55,7 @@
 #define DEFAULT_MEASURED_VOLUME	TRUE
 #define DEFAULT_MOS8580		FALSE
 #define DEFAULT_FORCE_SPEED	FALSE
-#define DEFAULT_BLOCKSIZE	4096
+#define DEFAULT_BLOCKSIZE	(8192*4)
 
 enum
 {
@@ -182,7 +182,7 @@ gst_siddecfp_class_init (GstSidDecfpClass * klass)
 
 static void
 gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
-{
+{ 
   siddecfp->sinkpad = gst_pad_new_from_static_template (&sink_templ, "sink");
   gst_pad_set_event_function (siddecfp->sinkpad, gst_siddecfp_sink_event);
   gst_pad_set_chain_function (siddecfp->sinkpad, gst_siddecfp_chain);
@@ -194,12 +194,22 @@ gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
   gst_pad_use_fixed_caps (siddecfp->srcpad);
   gst_element_add_pad (GST_ELEMENT (siddecfp), siddecfp->srcpad);
 
-  siddecfp->config = siddecfp->engine.config();
-  
+  siddecfp->engine=new sidplay2();
+  siddecfp->config = siddecfp->engine->config();
+
   siddecfp->config.sidDefault = SID2_MOS6581;
   siddecfp->config.clockDefault = SID2_CLOCK_PAL;
-
-  siddecfp->engine.config(siddecfp->config);
+  siddecfp->config.clockForced = false;
+  siddecfp->config.clockSpeed = SID2_CLOCK_CORRECT;
+  siddecfp->config.environment = sid2_envR;
+  siddecfp->config.frequency = 48000;
+  siddecfp->config.samplingMethod = SID2_INTERPOLATE;
+  siddecfp->config.fastSampling = false;
+  siddecfp->config.playback = sid2_stereo;
+  siddecfp->config.sidModel = SID2_MODEL_CORRECT;
+  siddecfp->config.sidSamples = true;
+  
+  siddecfp->engine->config(siddecfp->config);
   
   siddecfp->tune_buffer = (guchar *) g_malloc (SIDTUNE_MAX_FILELEN);
   siddecfp->tune_len = 0;
@@ -213,8 +223,12 @@ gst_siddecfp_finalize (GObject * object)
 {
   GstSidDecfp *siddecfp = GST_SIDDECFP (object);
 
-  // g_free (siddecfp->config);
+  siddecfp->engine->stop();
+  siddecfp->engine->load(NULL);
+    
   g_free (siddecfp->tune_buffer);
+  delete siddecfp->rs;
+  delete siddecfp->engine;
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
@@ -225,7 +239,7 @@ update_tags (GstSidDecfp * siddecfp)
   SidTuneInfo info;
   GstTagList *list;
 
-  siddecfp->tune.getInfo(info);
+  siddecfp->tune->getInfo(info);
   list = gst_tag_list_new ();
 
   if (info.infoString[0]) {
@@ -272,7 +286,7 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
   gst_structure_get_int (structure, "channels", &channels);
   siddecfp->config.playback = channels==2 ? sid2_stereo : sid2_mono;
   
- // siddecfp->config->sampleFormat = (sign ? SIDEMU_SIGNED_PCM : SIDEMU_UNSIGNED_PCM);
+  // siddecfp->config->sampleFormat = (sign ? SIDEMU_SIGNED_PCM : SIDEMU_UNSIGNED_PCM);
 
   caps = gst_caps_new_simple ("audio/x-raw-int",
       "endianness", G_TYPE_INT, G_BYTE_ORDER,
@@ -284,8 +298,12 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
   gst_pad_set_caps (siddecfp->srcpad, caps);
   gst_caps_unref (caps);
 
-  siddecfp->engine.config(siddecfp->config);
+  siddecfp->engine->config(siddecfp->config);
 
+  siddecfp->engine->mute(0, false);
+  siddecfp->engine->mute(1, false);  
+  siddecfp->engine->mute(2, false);
+  
   return TRUE;
 
   /* ERRORS */
@@ -296,8 +314,7 @@ nothing_allowed:
   }
 wrong_width:
   {
-    GST_DEBUG_OBJECT (siddecfp, "width %d and depth %d are different",
-        width, depth);
+    GST_DEBUG_OBJECT (siddecfp, "width %d and depth %d are different", width, depth);
     return FALSE;
   }
 }
@@ -308,15 +325,19 @@ play_loop (GstPad * pad)
   GstFlowReturn ret;
   GstSidDecfp *siddecfp;
   GstBuffer *out;
-  gint64 value, offset, time, played;
+  gint64 value, offset, time;
+  gint played;
   GstFormat format;
+  short buffer[32768];
 
   siddecfp = GST_SIDDECFP (gst_pad_get_parent (pad));
 
-  out = gst_buffer_new_and_alloc (siddecfp->blocksize);
+  out = gst_buffer_new_and_alloc (siddecfp->blocksize);  
+  
   gst_buffer_set_caps (out, GST_PAD_CAPS (pad));
 
-  played = siddecfp->engine.play((short int*)GST_BUFFER_DATA (out), GST_BUFFER_SIZE (out));
+  played = siddecfp->engine->play(buffer, siddecfp->blocksize);
+  memcpy (GST_BUFFER_DATA(out), buffer, siddecfp->blocksize);
 
   /* get offset in samples */
   format = GST_FORMAT_DEFAULT;
@@ -329,7 +350,7 @@ play_loop (GstPad * pad)
   GST_BUFFER_TIMESTAMP (out) = time;
 
   /* update position and get new timestamp to calculate duration */
-  siddecfp->total_bytes += siddecfp->blocksize;
+  siddecfp->total_bytes += played;
 
   /* get offset in samples */
   format = GST_FORMAT_DEFAULT;
@@ -344,7 +365,7 @@ play_loop (GstPad * pad)
     goto pause;
 
 done:
-  gst_object_unref (siddecfp);
+  // gst_object_unref (siddecfp);
 
   return;
 
@@ -372,20 +393,26 @@ static gboolean
 start_play_tune (GstSidDecfp * siddecfp)
 {
   gboolean res;
-  ReSIDfpBuilder *rs;
 
-  if (!siddecfp->tune.read(siddecfp->tune_buffer, siddecfp->tune_len))
+  siddecfp->tune=new SidTuneMod(NULL);
+
+  siddecfp->tune->read(siddecfp->tune_buffer, siddecfp->tune_len);
+  if (!siddecfp->tune->getStatus())
     goto could_not_load_tune;
 
-  if (!siddecfp->engine.load(&siddecfp->tune))
-    goto could_not_load_engine;
-
-  rs = new ReSIDfpBuilder("ReSIDfp");
-  if (!rs)
+  siddecfp->rs = new ReSIDfpBuilder("ReSIDfp");
+  if (!siddecfp->rs)
       goto could_not_init_resid;
       
-  siddecfp->config.sidEmulation = rs;
-  rs->create ((siddecfp->engine.info()).maxsids);
+  siddecfp->config.sidEmulation = siddecfp->rs;
+  siddecfp->rs->create(2);
+
+  siddecfp->tune->selectSong(siddecfp->tune_number);
+
+  if (siddecfp->engine->load(siddecfp->tune)<0)
+    goto could_not_load_engine;
+
+  siddecfp->engine->config(siddecfp->config);
 
   update_tags (siddecfp);
 
@@ -406,12 +433,14 @@ could_not_init_resid:
   }  
 could_not_load_tune:
   {
-    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune"), ("Could not load tune"));
+    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"),
+    	("Could not load tune into engine: %s (Size: %d)", siddecfp->tune->getInfo().statusString, siddecfp->tune_len));
     return FALSE;
   }  
 could_not_load_engine:
   {
-    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"), ("Could not load tune into engine"));
+    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"),
+    	("Could not load tune into engine: %s (Size: %d)", siddecfp->engine->error(), siddecfp->tune_len));
     return FALSE;
   }
 could_not_negotiate:
@@ -633,7 +662,7 @@ gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       return;
   }
-  siddecfp->engine.config(siddecfp->config);
+  siddecfp->engine->config(siddecfp->config);
 }
 
 static void
