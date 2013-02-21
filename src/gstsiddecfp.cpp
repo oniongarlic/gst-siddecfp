@@ -87,7 +87,7 @@ static GstStaticPadTemplate src_templ = GST_STATIC_PAD_TEMPLATE ("src",
         "signed = (boolean) { true }, "
         "width = (int) { 16 }, "
         "depth = (int) { 16 }, "
-        "rate = (int) [ 8000, 48000 ], " "channels = (int) [ 1, 2 ]")
+        "rate = (int) { 8000, 11025, 22050, 44100, 48000 }, " "channels = (int) [ 1, 2 ]")
     );
 
 GST_DEBUG_CATEGORY_STATIC (gst_siddecfp_debug);
@@ -264,7 +264,7 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
   GstStructure *structure;
   int rate = 48000;
   int channels = 1;
-  GstCaps *newcaps, *caps;
+  GstCaps *caps;
 
   allowed = gst_pad_get_allowed_caps (siddecfp->srcpad);
   if (!allowed)
@@ -272,13 +272,7 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
 
   GST_DEBUG_OBJECT (siddecfp, "allowed caps: %" GST_PTR_FORMAT, allowed);
 
-  newcaps = gst_caps_copy_nth (allowed, 0);
-  gst_caps_unref (allowed);
-
-  gst_pad_fixate_caps (siddecfp->srcpad, newcaps);
-  gst_pad_set_caps (siddecfp->srcpad, newcaps);
-
-  structure = gst_caps_get_structure (newcaps, 0);
+  structure = gst_caps_get_structure (allowed, 0);
 
   gst_structure_get_int (structure, "rate", &rate);
   gst_structure_get_int (structure, "channels", &channels);
@@ -293,6 +287,9 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
       "depth", G_TYPE_INT, depth,
       "rate", G_TYPE_INT, rate,
       "channels", G_TYPE_INT, channels, NULL);
+
+  GST_DEBUG_OBJECT (siddecfp, "used caps: %" GST_PTR_FORMAT, caps);
+
   gst_pad_set_caps (siddecfp->srcpad, caps);
   gst_caps_unref (caps);
 
