@@ -55,7 +55,9 @@
 #define DEFAULT_MEASURED_VOLUME	TRUE
 #define DEFAULT_MOS8580		FALSE
 #define DEFAULT_FORCE_SPEED	FALSE
-#define DEFAULT_BLOCKSIZE	(8192*4)
+#define DEFAULT_BLOCKSIZE	(8*1024)
+#define MIN_BLOCKSIZE	(1*1024)
+#define MAX_BLOCKSIZE	(64*1024)
 
 enum
 {
@@ -82,7 +84,7 @@ static GstStaticPadTemplate src_templ = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("audio/x-raw-int, "
         "endianness = (int) BYTE_ORDER, "
-        "signed = (boolean) { true, false }, "
+        "signed = (boolean) { true }, "
         "width = (int) { 16 }, "
         "depth = (int) { 16 }, "
         "rate = (int) [ 8000, 48000 ], " "channels = (int) [ 1, 2 ]")
@@ -172,7 +174,7 @@ gst_siddecfp_class_init (GstSidDecfpClass * klass)
           DEFAULT_FORCE_SPEED,
           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_BLOCKSIZE,
-      g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", 1, G_MAXULONG,
+      g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", MIN_BLOCKSIZE, MAX_BLOCKSIZE,
           DEFAULT_BLOCKSIZE,
           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (gobject_class, PROP_METADATA,
@@ -182,7 +184,7 @@ gst_siddecfp_class_init (GstSidDecfpClass * klass)
 
 static void
 gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
-{ 
+{
   siddecfp->sinkpad = gst_pad_new_from_static_template (&sink_templ, "sink");
   gst_pad_set_event_function (siddecfp->sinkpad, gst_siddecfp_sink_event);
   gst_pad_set_chain_function (siddecfp->sinkpad, gst_siddecfp_chain);
@@ -194,7 +196,7 @@ gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
   gst_pad_use_fixed_caps (siddecfp->srcpad);
   gst_element_add_pad (GST_ELEMENT (siddecfp), siddecfp->srcpad);
 
-  siddecfp->engine=new sidplay2();
+  siddecfp->engine = new sidplay2();
   siddecfp->config = siddecfp->engine->config();
 
   siddecfp->config.sidDefault = SID2_MOS6581;
@@ -208,9 +210,9 @@ gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
   siddecfp->config.playback = sid2_stereo;
   siddecfp->config.sidModel = SID2_MODEL_CORRECT;
   siddecfp->config.sidSamples = true;
-  
-  siddecfp->engine->config(siddecfp->config);
-  
+
+  // siddecfp->engine->config(siddecfp->config);
+
   siddecfp->tune_buffer = (guchar *) g_malloc (SIDTUNE_MAX_FILELEN);
   siddecfp->tune_len = 0;
   siddecfp->tune_number = 0;
@@ -225,7 +227,7 @@ gst_siddecfp_finalize (GObject * object)
 
   siddecfp->engine->stop();
   siddecfp->engine->load(NULL);
-    
+
   g_free (siddecfp->tune_buffer);
   delete siddecfp->rs;
   delete siddecfp->engine;
@@ -258,12 +260,11 @@ static gboolean
 siddecfp_negotiate (GstSidDecfp * siddecfp)
 {
   GstCaps *allowed;
-  gboolean sign = TRUE;
   gint width = 16, depth = 16;
   GstStructure *structure;
   int rate = 48000;
   int channels = 1;
-  GstCaps *caps;
+  GstCaps *newcaps, *caps;
 
   allowed = gst_pad_get_allowed_caps (siddecfp->srcpad);
   if (!allowed)
@@ -271,50 +272,36 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
 
   GST_DEBUG_OBJECT (siddecfp, "allowed caps: %" GST_PTR_FORMAT, allowed);
 
-  structure = gst_caps_get_structure (allowed, 0);
+  newcaps = gst_caps_copy_nth (allowed, 0);
+  gst_caps_unref (allowed);
 
-  gst_structure_get_int (structure, "width", &width);
-  gst_structure_get_int (structure, "depth", &depth);
+  gst_pad_fixate_caps (siddecfp->srcpad, newcaps);
+  gst_pad_set_caps (siddecfp->srcpad, newcaps);
 
-  if (width && depth && width != depth)
-    goto wrong_width;
+  structure = gst_caps_get_structure (newcaps, 0);
 
-  gst_structure_get_boolean (structure, "signed", &sign);
   gst_structure_get_int (structure, "rate", &rate);
-  siddecfp->config.frequency = rate;
-
   gst_structure_get_int (structure, "channels", &channels);
+
+  siddecfp->config.frequency = rate;
   siddecfp->config.playback = channels==2 ? sid2_stereo : sid2_mono;
-  
-  // siddecfp->config->sampleFormat = (sign ? SIDEMU_SIGNED_PCM : SIDEMU_UNSIGNED_PCM);
 
   caps = gst_caps_new_simple ("audio/x-raw-int",
       "endianness", G_TYPE_INT, G_BYTE_ORDER,
-      "signed", G_TYPE_BOOLEAN, sign,
-      "width", G_TYPE_INT, width,
+      "signed", G_TYPE_BOOLEAN, TRUE,
+      "width", G_TYPE_INT, depth,
       "depth", G_TYPE_INT, depth,
-      "rate", G_TYPE_INT, siddecfp->config.frequency,
+      "rate", G_TYPE_INT, rate,
       "channels", G_TYPE_INT, channels, NULL);
   gst_pad_set_caps (siddecfp->srcpad, caps);
   gst_caps_unref (caps);
 
-  siddecfp->engine->config(siddecfp->config);
-
-  siddecfp->engine->mute(0, false);
-  siddecfp->engine->mute(1, false);  
-  siddecfp->engine->mute(2, false);
-  
   return TRUE;
 
   /* ERRORS */
 nothing_allowed:
   {
     GST_DEBUG_OBJECT (siddecfp, "could not get allowed caps");
-    return FALSE;
-  }
-wrong_width:
-  {
-    GST_DEBUG_OBJECT (siddecfp, "width %d and depth %d are different", width, depth);
     return FALSE;
   }
 }
@@ -324,20 +311,22 @@ play_loop (GstPad * pad)
 {
   GstFlowReturn ret;
   GstSidDecfp *siddecfp;
-  GstBuffer *out;
+  GstBuffer *out=NULL;
   gint64 value, offset, time;
-  gint played;
+  guint played;
   GstFormat format;
-  short buffer[32768];
+  short buffer[MAX_BLOCKSIZE];
+  gint bytes_per_sample;
 
   siddecfp = GST_SIDDECFP (gst_pad_get_parent (pad));
 
-  out = gst_buffer_new_and_alloc (siddecfp->blocksize);  
-  
-  gst_buffer_set_caps (out, GST_PAD_CAPS (pad));
+  ret = gst_pad_alloc_buffer_and_set_caps (siddecfp->srcpad, GST_BUFFER_OFFSET_NONE, siddecfp->blocksize, GST_PAD_CAPS (siddecfp->srcpad), &out);
+  if (ret != GST_FLOW_OK)
+    goto pause;
 
-  played = siddecfp->engine->play(buffer, siddecfp->blocksize);
-  memcpy (GST_BUFFER_DATA(out), buffer, siddecfp->blocksize);
+  played = siddecfp->engine->play(buffer, siddecfp->blocksize/2)*2;
+
+  memcpy (GST_BUFFER_DATA(out), buffer, played);
 
   /* get offset in samples */
   format = GST_FORMAT_DEFAULT;
@@ -364,8 +353,13 @@ play_loop (GstPad * pad)
   if ((ret = gst_pad_push (siddecfp->srcpad, out)) != GST_FLOW_OK)
     goto pause;
 
+  if (played < siddecfp->blocksize) {
+    gst_pad_push_event (pad, gst_event_new_eos ());
+    gst_pad_pause_task (pad);
+  }
+
 done:
-  // gst_object_unref (siddecfp);
+  gst_object_unref (siddecfp);
 
   return;
 
@@ -403,24 +397,26 @@ start_play_tune (GstSidDecfp * siddecfp)
   siddecfp->rs = new ReSIDfpBuilder("ReSIDfp");
   if (!siddecfp->rs)
       goto could_not_init_resid;
-      
+
   siddecfp->config.sidEmulation = siddecfp->rs;
   siddecfp->rs->create(2);
-
-  siddecfp->tune->selectSong(siddecfp->tune_number);
-
-  if (siddecfp->engine->load(siddecfp->tune)<0)
-    goto could_not_load_engine;
-
-  siddecfp->engine->config(siddecfp->config);
-
-  update_tags (siddecfp);
 
   if (!siddecfp_negotiate (siddecfp))
     goto could_not_negotiate;
 
+  if (siddecfp->engine->config(siddecfp->config)<0)
+    goto could_not_set_config;
+
+  siddecfp->tune->selectSong(siddecfp->tune_number);
+  if (siddecfp->engine->load(siddecfp->tune)<0)
+    goto could_not_load_engine;
+
+  update_tags (siddecfp);
+
   gst_pad_push_event (siddecfp->srcpad, gst_event_new_new_segment (FALSE, 1.0, GST_FORMAT_TIME, 0, -1, 0));
   siddecfp->total_bytes = 0;
+
+  siddecfp->engine->fastForward (100);
 
   res = gst_pad_start_task (siddecfp->srcpad, (GstTaskFunction) play_loop, siddecfp->srcpad);
   return res;
@@ -430,13 +426,13 @@ could_not_init_resid:
   {
     GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not init residfp tune"), ("Could not init residfp"));
     return FALSE;
-  }  
+  }
 could_not_load_tune:
   {
     GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"),
     	("Could not load tune into engine: %s (Size: %d)", siddecfp->tune->getInfo().statusString, siddecfp->tune_len));
     return FALSE;
-  }  
+  }
 could_not_load_engine:
   {
     GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"),
@@ -446,6 +442,11 @@ could_not_load_engine:
 could_not_negotiate:
   {
     GST_ELEMENT_ERROR (siddecfp, CORE, NEGOTIATION, ("Could not negotiate format"), ("Could not negotiate format"));
+    return FALSE;
+  }
+could_not_set_config:
+  {
+    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not set engine config"), ("Could not set engine config"));
     return FALSE;
   }
 }
@@ -505,8 +506,7 @@ overflow:
 }
 
 static gboolean
-gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value,
-    GstFormat * dest_format, gint64 * dest_value)
+gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value, GstFormat * dest_format, gint64 * dest_value)
 {
   gboolean res = TRUE;
   guint scale = 1;
@@ -520,7 +520,7 @@ gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value,
     return TRUE;
   }
 
-  bytes_per_sample = (16 >> 3) * siddecfp->config.playback==sid2_stereo ? 2 : 1;
+  bytes_per_sample = 2 * (siddecfp->config.playback==sid2_stereo ? 2 : 1);
 
   switch (src_format) {
     case GST_FORMAT_BYTES:
