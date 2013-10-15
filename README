@@ -1,1 +1,4 @@
-Gstreamer element for playback of SID files using libsiddecfp engine
+Gstreamer element for playback of SID files using the libsiddecfp engine, available from http://sourceforge.net/projects/sidplay-residfp/
+
+Requires libsiddecfp 1.1.0 or later
+
