@@ -50,7 +50,7 @@
 #include "gstsiddecfp.h"
 
 #define DEFAULT_TUNE		0
-#define DEFAULT_CLOCK		SIDTUNE_CLOCK_PAL
+#define DEFAULT_CLOCK		SidConfig::PAL
 #define DEFAULT_FILTER		TRUE
 #define DEFAULT_MEASURED_VOLUME	TRUE
 #define DEFAULT_MOS8580		FALSE
@@ -58,6 +58,7 @@
 #define DEFAULT_BLOCKSIZE	(8*1024)
 #define MIN_BLOCKSIZE	(1*1024)
 #define MAX_BLOCKSIZE	(64*1024)
+#define SIDTUNE_MAX_FILELEN (65535)
 
 enum
 {
@@ -99,9 +100,10 @@ gst_sid_clock_get_type (void)
 {
   static GType sid_clock_type = 0;
   static const GEnumValue sid_clock[] = {
-    {SIDTUNE_CLOCK_PAL, "PAL", "pal"},
-    {SIDTUNE_CLOCK_NTSC, "NTSC", "ntsc"},
-    {SIDTUNE_CLOCK_ANY, "ANY", "any"},
+    { SidConfig::PAL, "PAL", "pal"},
+    { SidConfig::NTSC, "NTSC", "ntsc"},
+    { SidConfig::OLD_NTSC, "OLDNTSC", "oldntsc"},
+    { SidConfig::DREAN, "DREAN", "drean"},
     {0, NULL, NULL},
   };
 
@@ -196,20 +198,14 @@ gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
   gst_pad_use_fixed_caps (siddecfp->srcpad);
   gst_element_add_pad (GST_ELEMENT (siddecfp), siddecfp->srcpad);
 
-  siddecfp->engine = new sidplay2();
+  siddecfp->engine = new sidplayfp();
   siddecfp->config = siddecfp->engine->config();
 
-  siddecfp->config.sidDefault = SID2_MOS6581;
-  siddecfp->config.clockDefault = SID2_CLOCK_PAL;
-  siddecfp->config.clockForced = false;
-  siddecfp->config.clockSpeed = SID2_CLOCK_CORRECT;
-  siddecfp->config.environment = sid2_envR;
+  siddecfp->config.defaultSidModel = SidConfig::MOS6581;
+  siddecfp->config.defaultC64Model = SidConfig::PAL;
   siddecfp->config.frequency = 48000;
-  siddecfp->config.samplingMethod = SID2_INTERPOLATE;
-  siddecfp->config.fastSampling = false;
-  siddecfp->config.playback = sid2_stereo;
-  siddecfp->config.sidModel = SID2_MODEL_CORRECT;
-  siddecfp->config.sidSamples = true;
+  siddecfp->config.samplingMethod = SidConfig::INTERPOLATE;
+  siddecfp->config.playback = SidConfig::STEREO;
 
   // siddecfp->engine->config(siddecfp->config);
 
@@ -238,20 +234,16 @@ gst_siddecfp_finalize (GObject * object)
 static void
 update_tags (GstSidDecfp * siddecfp)
 {
-  SidTuneInfo info;
   GstTagList *list;
-
-  siddecfp->tune->getInfo(info);
+  const SidTuneInfo* info = siddecfp->tune->getInfo();
   list = gst_tag_list_new ();
+  const unsigned int n = info->numberOfInfoStrings();
 
-  if (info.infoString[0]) {
-     gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_TITLE, info.infoString[0], (void *) NULL);
-  }
-  if (info.infoString[1]) {
-    gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_ARTIST, info.infoString[1], (void *) NULL);
-  }
-  if (info.infoString[2]) {
-    gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_COPYRIGHT, info.infoString[2], (void *) NULL);
+  if (n)
+     gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_TITLE, info->infoString(0), (void *) NULL);
+  if (n>1) {
+     gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_ARTIST, info->infoString(1), (void *) NULL);
+     gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_COPYRIGHT, info->infoString(2), (void *) NULL);
   }
   gst_element_found_tags_for_pad (GST_ELEMENT_CAST (siddecfp), siddecfp->srcpad, list);
 }
@@ -278,7 +270,7 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
   gst_structure_get_int (structure, "channels", &channels);
 
   siddecfp->config.frequency = rate;
-  siddecfp->config.playback = channels==2 ? sid2_stereo : sid2_mono;
+  siddecfp->config.playback = channels==2 ? SidConfig::STEREO : SidConfig::MONO;
 
   caps = gst_caps_new_simple ("audio/x-raw-int",
       "endianness", G_TYPE_INT, G_BYTE_ORDER,
@@ -385,7 +377,7 @@ start_play_tune (GstSidDecfp * siddecfp)
 {
   gboolean res;
 
-  siddecfp->tune=new SidTuneMod(NULL);
+  siddecfp->tune=new SidTune(NULL);
 
   siddecfp->tune->read(siddecfp->tune_buffer, siddecfp->tune_len);
   if (!siddecfp->tune->getStatus())
@@ -404,7 +396,7 @@ start_play_tune (GstSidDecfp * siddecfp)
   if (siddecfp->engine->config(siddecfp->config)<0)
     goto could_not_set_config;
 
-  siddecfp->tune->selectSong(siddecfp->tune_number);
+  siddecfp->tune_number = siddecfp->tune->selectSong(siddecfp->tune_number);
   if (siddecfp->engine->load(siddecfp->tune)<0)
     goto could_not_load_engine;
 
@@ -426,8 +418,7 @@ could_not_init_resid:
   }
 could_not_load_tune:
   {
-    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"),
-    	("Could not load tune into engine: %s (Size: %d)", siddecfp->tune->getInfo().statusString, siddecfp->tune_len));
+    GST_ELEMENT_ERROR (siddecfp, LIBRARY, INIT, ("Could not load tune into engine"), ("Could not load tune into engine."));
     return FALSE;
   }
 could_not_load_engine:
@@ -517,7 +508,7 @@ gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value, 
     return TRUE;
   }
 
-  bytes_per_sample = 2 * (siddecfp->config.playback==sid2_stereo ? 2 : 1);
+  bytes_per_sample = 2 * (siddecfp->config.playback==SidConfig::STEREO ? 2 : 1);
 
   switch (src_format) {
     case GST_FORMAT_BYTES:

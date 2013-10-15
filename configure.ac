@@ -30,7 +30,7 @@ AC_CHECK_PROG(HAVE_PKGCONFIG, pkg-config, [ ], [
   AC_MSG_ERROR([You need to have pkg-config installed!])
 ])
 
-PKG_CHECK_MODULES(SIDPLAY, libsidplayfp)
+PKG_CHECK_MODULES(SIDPLAY, libsidplayfp >= 1.1.0)
 
 dnl Check for the required version of GStreamer core (and gst-plugins-base)
 dnl This will export GST_CFLAGS and GST_LIBS variables for use in Makefile.am

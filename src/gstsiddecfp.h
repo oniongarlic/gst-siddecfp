@@ -23,9 +23,11 @@
 #define __GST_SIDDECFP_H__
 
 #include <stdlib.h>
-#include <sidplayfp/sidplay2.h>
+#include <sidplayfp/sidplayfp.h>
 #include <sidplayfp/event.h>
-#include <sidplayfp/SidTuneMod.h>
+#include <sidplayfp/SidTune.h>
+#include <sidplayfp/SidInfo.h>
+#include <sidplayfp/SidTuneInfo.h>
 #include <sidplayfp/sidbuilder.h>
 #include <sidplayfp/builders/residfp.h>
 #include <sidplayfp/builders/resid.h>
@@ -60,9 +62,9 @@ struct _GstSidDecfp {
   gint           tune_number;
   guint64        total_bytes;
 
-  sidplay2       *engine;
-  SidTuneMod     *tune;
-  sid2_config_t  config;
+  sidplayfp     *engine;
+  SidTune       *tune;
+  SidConfig     config;
   ReSIDfpBuilder *rs;
 
   gulong         blocksize;
