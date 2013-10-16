@@ -146,42 +146,20 @@ gst_siddecfp_base_init (gpointer g_class)
 static void
 gst_siddecfp_class_init (GstSidDecfpClass * klass)
 {
-  GObjectClass *gobject_class;
-
-  gobject_class = (GObjectClass *) klass;
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
   gobject_class->finalize = gst_siddecfp_finalize;
   gobject_class->set_property = gst_siddecfp_set_property;
   gobject_class->get_property = gst_siddecfp_get_property;
 
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_TUNE,
-      g_param_spec_int ("tune", "tune", "tune", 0, 100, DEFAULT_TUNE,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_CLOCK,
-      g_param_spec_enum ("clock", "clock", "clock",
-          GST_TYPE_SID_CLOCK, DEFAULT_CLOCK,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FILTER,
-      g_param_spec_boolean ("filter", "filter", "filter", DEFAULT_FILTER,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MEASURED_VOLUME,
-      g_param_spec_boolean ("measured-volume", "measured_volume",
-          "measured_volume", DEFAULT_MEASURED_VOLUME,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MOS8580,
-      g_param_spec_boolean ("mos8580", "mos8580", "mos8580", DEFAULT_MOS8580,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FORCE_SPEED,
-      g_param_spec_boolean ("force-speed", "force_speed", "force_speed",
-          DEFAULT_FORCE_SPEED,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_BLOCKSIZE,
-      g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", MIN_BLOCKSIZE, MAX_BLOCKSIZE,
-          DEFAULT_BLOCKSIZE,
-          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (gobject_class, PROP_METADATA,
-      g_param_spec_boxed ("metadata", "Metadata", "Metadata", GST_TYPE_CAPS,
-          (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_TUNE, g_param_spec_int ("tune", "tune", "tune", 0, 100, DEFAULT_TUNE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_CLOCK, g_param_spec_enum ("clock", "clock", "clock", GST_TYPE_SID_CLOCK, DEFAULT_CLOCK, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FILTER, g_param_spec_boolean ("filter", "filter", "filter", DEFAULT_FILTER, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MEASURED_VOLUME, g_param_spec_boolean ("measured-volume", "measured_volume", "measured_volume", DEFAULT_MEASURED_VOLUME, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MOS8580, g_param_spec_boolean ("mos8580", "mos8580", "mos8580", DEFAULT_MOS8580, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FORCE_SPEED, g_param_spec_boolean ("force-speed", "force_speed", "force_speed", DEFAULT_FORCE_SPEED, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_BLOCKSIZE, g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", MIN_BLOCKSIZE, MAX_BLOCKSIZE, DEFAULT_BLOCKSIZE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_METADATA, g_param_spec_boxed ("metadata", "Metadata", "Metadata", GST_TYPE_CAPS, (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
 }
 
 static void
