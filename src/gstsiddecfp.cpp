@@ -69,7 +69,6 @@ enum
   PROP_FILTER,
   PROP_MEASURED_VOLUME,
   PROP_MOS8580,
-  PROP_FORCE_SPEED,
   PROP_BLOCKSIZE,
   PROP_METADATA
 };
@@ -100,10 +99,10 @@ gst_sid_clock_get_type (void)
 {
   static GType sid_clock_type = 0;
   static const GEnumValue sid_clock[] = {
-    { SidConfig::PAL, "PAL", "pal"},
-    { SidConfig::NTSC, "NTSC", "ntsc"},
-    { SidConfig::OLD_NTSC, "OLDNTSC", "oldntsc"},
-    { SidConfig::DREAN, "DREAN", "drean"},
+    { SidConfig::PAL, "PAL", "pal" },
+    { SidConfig::NTSC, "NTSC", "ntsc" },
+    { SidConfig::OLD_NTSC, "OLDNTSC", "oldntsc" },
+    { SidConfig::DREAN, "DREAN", "drean" },
     {0, NULL, NULL},
   };
 
@@ -157,7 +156,6 @@ gst_siddecfp_class_init (GstSidDecfpClass * klass)
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FILTER, g_param_spec_boolean ("filter", "filter", "filter", DEFAULT_FILTER, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MEASURED_VOLUME, g_param_spec_boolean ("measured-volume", "measured_volume", "measured_volume", DEFAULT_MEASURED_VOLUME, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MOS8580, g_param_spec_boolean ("mos8580", "mos8580", "mos8580", DEFAULT_MOS8580, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_FORCE_SPEED, g_param_spec_boolean ("force-speed", "force_speed", "force_speed", DEFAULT_FORCE_SPEED, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_BLOCKSIZE, g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", MIN_BLOCKSIZE, MAX_BLOCKSIZE, DEFAULT_BLOCKSIZE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_METADATA, g_param_spec_boxed ("metadata", "Metadata", "Metadata", GST_TYPE_CAPS, (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
 }
@@ -604,7 +602,7 @@ gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value
       siddecfp->tune_number = g_value_get_int (value);
       break;
     case PROP_CLOCK:
-      //siddecfp->config->clockSpeed = g_value_get_enum (value);
+      siddecfp->config.defaultC64Model = (SidConfig::c64_model_t) g_value_get_enum (value);
       break;
     case PROP_MEMORY:
       //siddecfp->config->memoryMode = g_value_get_enum (value);
@@ -620,9 +618,6 @@ gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value
       break;
     case PROP_BLOCKSIZE:
       siddecfp->blocksize = g_value_get_ulong (value);
-      break;
-    case PROP_FORCE_SPEED:
-      //siddecfp->config->forceSongSpeed = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -642,7 +637,7 @@ gst_siddecfp_get_property (GObject * object, guint prop_id, GValue * value,
       g_value_set_int (value, siddecfp->tune_number);
       break;
     case PROP_CLOCK:
-      //g_value_set_enum (value, siddecfp->config->clockSpeed);
+      g_value_set_enum (value, siddecfp->config.defaultC64Model);
       break;
     case PROP_MEMORY:
       //g_value_set_enum (value, siddecfp->config->memoryMode);
@@ -655,9 +650,6 @@ gst_siddecfp_get_property (GObject * object, guint prop_id, GValue * value,
       break;
     case PROP_MOS8580:
       //g_value_set_boolean (value, siddecfp->config->mos8580);
-      break;
-    case PROP_FORCE_SPEED:
-      //g_value_set_boolean (value, siddecfp->config->forceSongSpeed);
       break;
     case PROP_BLOCKSIZE:
       g_value_set_ulong (value, siddecfp->blocksize);
