@@ -47,6 +47,7 @@
 #endif
 
 #include <string.h>
+#include <gst/audio/audio.h>
 #include "gstsiddecfp.h"
 
 #define DEFAULT_TUNE		0
@@ -79,15 +80,15 @@ static GstStaticPadTemplate sink_templ = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_STATIC_CAPS ("audio/x-sid")
     );
 
+#define FORMATS "{ "GST_AUDIO_NE(S16)","GST_AUDIO_NE(U16)", S8, U8 }"
+
 static GstStaticPadTemplate src_templ = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("audio/x-raw-int, "
-        "endianness = (int) BYTE_ORDER, "
-        "signed = (boolean) { true }, "
-        "width = (int) { 16 }, "
-        "depth = (int) { 16 }, "
-        "rate = (int) { 8000, 11025, 22050, 44100, 48000 }, " "channels = (int) [ 1, 2 ]")
+    GST_STATIC_CAPS ("audio/x-raw, "
+	"format = (string) " FORMATS ", "
+	"layout = (string) interleaved, "
+	"rate = (int) [ 8000, 48000 ], " "channels = (int) [ 1, 2 ]")
     );
 
 GST_DEBUG_CATEGORY_STATIC (gst_siddecfp_debug);
@@ -114,38 +115,29 @@ gst_sid_clock_get_type (void)
 
 static void gst_siddecfp_finalize (GObject * object);
 
-static GstFlowReturn gst_siddecfp_chain (GstPad * pad, GstBuffer * buffer);
-static gboolean gst_siddecfp_sink_event (GstPad * pad, GstEvent * event);
+static GstFlowReturn gst_siddecfp_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer);
+static gboolean gst_siddecfp_sink_event (GstPad * pad, GstObject * parent, GstEvent * event);
 
 static gboolean gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value, GstFormat * dest_format, gint64 * dest_value);
-static gboolean gst_siddecfp_src_event (GstPad * pad, GstEvent * event);
-static gboolean gst_siddecfp_src_query (GstPad * pad, GstQuery * query);
+static gboolean gst_siddecfp_src_event (GstPad * pad, GstObject * parent, GstEvent * event);
+static gboolean gst_siddecfp_src_query (GstPad * pad, GstObject * parent, GstQuery * query);
 
 static void gst_siddecfp_get_property (GObject * object, guint prop_id, GValue * value, GParamSpec * pspec);
 static void gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value, GParamSpec * pspec);
 
 #define _do_init(bla) GST_DEBUG_CATEGORY_INIT (gst_siddecfp_debug, "siddecfp", 0, "C64 sid song player");
 
-GST_BOILERPLATE_FULL (GstSidDecfp, gst_siddecfp, GstElement, GST_TYPE_ELEMENT, _do_init);
-
-static void
-gst_siddecfp_base_init (gpointer g_class)
-{
-  GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
-
-  gst_element_class_set_details_simple (element_class,
-      "Sid decoder",
-      "Codec/Decoder/Audio", "Use libsidplayfp to decode SID audio tunes",
-      "Kaj-Michael Lang <milang@tal.org>");
-
-  gst_element_class_add_static_pad_template (element_class, &src_templ);
-  gst_element_class_add_static_pad_template (element_class, &sink_templ);
-}
+#define gst_siddecfp_parent_class parent_class
+G_DEFINE_TYPE (GstSidDecfp, gst_siddecfp, GST_TYPE_ELEMENT);
 
 static void
 gst_siddecfp_class_init (GstSidDecfpClass * klass)
 {
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  GObjectClass *gobject_class;
+  GstElementClass *gstelement_class;
+
+  gobject_class = (GObjectClass *) klass;
+  gstelement_class = (GstElementClass *) klass;
 
   gobject_class->finalize = gst_siddecfp_finalize;
   gobject_class->set_property = gst_siddecfp_set_property;
@@ -158,10 +150,17 @@ gst_siddecfp_class_init (GstSidDecfpClass * klass)
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_MOS8580, g_param_spec_boolean ("mos8580", "mos8580", "mos8580", DEFAULT_MOS8580, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_BLOCKSIZE, g_param_spec_ulong ("blocksize", "Block size", "Size in bytes to output per buffer", MIN_BLOCKSIZE, MAX_BLOCKSIZE, DEFAULT_BLOCKSIZE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_METADATA, g_param_spec_boxed ("metadata", "Metadata", "Metadata", GST_TYPE_CAPS, (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
+  gst_element_class_set_static_metadata (gstelement_class,
+	"Sid decoder",
+	"Codec/Decoder/Audio", "Use libsidplayfp to decode SID audio tunes",
+	"Kaj-Michael Lang <milang@tal.org>");
+
+  gst_element_class_add_pad_template (gstelement_class, gst_static_pad_template_get (&src_templ));
+  gst_element_class_add_pad_template (gstelement_class, gst_static_pad_template_get (&sink_templ));
 }
 
 static void
-gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
+gst_siddecfp_init (GstSidDecfp * siddecfp)
 {
   siddecfp->sinkpad = gst_pad_new_from_static_template (&sink_templ, "sink");
   gst_pad_set_event_function (siddecfp->sinkpad, gst_siddecfp_sink_event);
@@ -190,6 +189,8 @@ gst_siddecfp_init (GstSidDecfp * siddecfp, GstSidDecfpClass * klass)
   siddecfp->tune_number = 0;
   siddecfp->total_bytes = 0;
   siddecfp->blocksize = DEFAULT_BLOCKSIZE;
+  siddecfp->have_group_id = FALSE;
+  siddecfp->group_id = G_MAXUINT;
 }
 
 static void
@@ -212,7 +213,7 @@ update_tags (GstSidDecfp * siddecfp)
 {
   GstTagList *list;
   const SidTuneInfo* info = siddecfp->tune->getInfo();
-  list = gst_tag_list_new ();
+  list = gst_tag_list_new_empty ();
   const unsigned int n = info->numberOfInfoStrings();
 
   if (n)
@@ -221,7 +222,7 @@ update_tags (GstSidDecfp * siddecfp)
      gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_ARTIST, info->infoString(1), (void *) NULL);
      gst_tag_list_add (list, GST_TAG_MERGE_REPLACE, GST_TAG_COPYRIGHT, info->infoString(2), (void *) NULL);
   }
-  gst_element_found_tags_for_pad (GST_ELEMENT_CAST (siddecfp), siddecfp->srcpad, list);
+  gst_pad_push_event (siddecfp->srcpad, gst_event_new_tag (list));
 }
 
 static gboolean
@@ -233,41 +234,94 @@ siddecfp_negotiate (GstSidDecfp * siddecfp)
   int rate = 48000;
   int channels = 1;
   GstCaps *caps;
+  const gchar *str;
+  GstAudioFormat format;
+  GstEvent *event;
+  gchar *stream_id;
 
   allowed = gst_pad_get_allowed_caps (siddecfp->srcpad);
   if (!allowed)
-    goto nothing_allowed;
+  goto nothing_allowed;
 
   GST_DEBUG_OBJECT (siddecfp, "allowed caps: %" GST_PTR_FORMAT, allowed);
 
+  allowed = gst_caps_normalize (allowed);
+
   structure = gst_caps_get_structure (allowed, 0);
 
-  gst_structure_get_int (structure, "rate", &rate);
-  gst_structure_get_int (structure, "channels", &channels);
+  str = gst_structure_get_string (structure, "format");
+  if (str == NULL)
+    goto invalid_format;
 
+  format = gst_audio_format_from_string (str);
+  switch (format) {
+
+  case GST_AUDIO_FORMAT_S16:
+
+  break;
+  case GST_AUDIO_FORMAT_U16:
+
+  break;
+  default:
+    goto invalid_format;
+  }
+
+  gst_structure_get_int (structure, "rate", &rate);
   siddecfp->config.frequency = rate;
+
+  gst_structure_get_int (structure, "channels", &channels);
   siddecfp->config.playback = channels==2 ? SidConfig::STEREO : SidConfig::MONO;
 
-  caps = gst_caps_new_simple ("audio/x-raw-int",
-      "endianness", G_TYPE_INT, G_BYTE_ORDER,
-      "signed", G_TYPE_BOOLEAN, TRUE,
-      "width", G_TYPE_INT, depth,
-      "depth", G_TYPE_INT, depth,
-      "rate", G_TYPE_INT, rate,
-      "channels", G_TYPE_INT, channels, NULL);
+  stream_id = gst_pad_create_stream_id (siddecfp->srcpad, GST_ELEMENT_CAST (siddecfp), NULL);
+
+  event = gst_pad_get_sticky_event (siddecfp->sinkpad, GST_EVENT_STREAM_START, 0);
+  if (event) {
+
+    if (gst_event_parse_group_id (event, &siddecfp->group_id))
+      siddecfp->have_group_id = TRUE;
+    else
+      siddecfp->have_group_id = FALSE;
+    gst_event_unref (event);
+
+  } else if (!siddecfp->have_group_id) {
+    siddecfp->have_group_id = TRUE;
+    siddecfp->group_id = gst_util_group_id_next ();
+  }
+
+  event = gst_event_new_stream_start (stream_id);
+  if (siddecfp->have_group_id)
+  gst_event_set_group_id (event, siddecfp->group_id);
+
+  gst_pad_push_event (siddecfp->srcpad, event);
+  g_free (stream_id);
+
+  caps = gst_caps_new_simple ("audio/x-raw",
+    "format", G_TYPE_STRING, gst_audio_format_to_string (format),
+    "layout", G_TYPE_STRING, "interleaved",
+    "rate", G_TYPE_INT, rate,
+    "channels", G_TYPE_INT, channels, NULL);
 
   GST_DEBUG_OBJECT (siddecfp, "used caps: %" GST_PTR_FORMAT, caps);
 
   gst_pad_set_caps (siddecfp->srcpad, caps);
   gst_caps_unref (caps);
 
+  gst_caps_unref (allowed);
+
   return TRUE;
 
   /* ERRORS */
 nothing_allowed:
   {
-    GST_DEBUG_OBJECT (siddecfp, "could not get allowed caps");
-    return FALSE;
+  GST_DEBUG_OBJECT (siddecfp, "could not get allowed caps");
+  return FALSE;
+  }
+
+invalid_format:
+  {
+  GST_DEBUG_OBJECT (siddecfp, "invalid audio caps");
+  gst_caps_unref (allowed);
+  return FALSE;
   }
 }
 
@@ -277,21 +331,18 @@ play_loop (GstPad * pad)
   GstFlowReturn ret;
   GstSidDecfp *siddecfp;
   GstBuffer *out=NULL;
+  GstMapInfo outmap;
   gint64 value, offset, time;
   guint played;
   GstFormat format;
-  short buffer[MAX_BLOCKSIZE];
-  gint bytes_per_sample;
 
   siddecfp = GST_SIDDECFP (gst_pad_get_parent (pad));
 
-  ret = gst_pad_alloc_buffer_and_set_caps (siddecfp->srcpad, GST_BUFFER_OFFSET_NONE, siddecfp->blocksize, GST_PAD_CAPS (siddecfp->srcpad), &out);
-  if (ret != GST_FLOW_OK)
-    goto pause;
+  out = gst_buffer_new_and_alloc (siddecfp->blocksize);
 
-  played = siddecfp->engine->play(buffer, siddecfp->blocksize/2)*2;
-
-  memcpy (GST_BUFFER_DATA(out), buffer, played);
+  gst_buffer_map (out, &outmap, GST_MAP_WRITE);
+  played = siddecfp->engine->play((short*)outmap.data, siddecfp->blocksize/2)*2;
+  gst_buffer_unmap (out, &outmap);
 
   /* get offset in samples */
   format = GST_FORMAT_DEFAULT;
@@ -333,10 +384,10 @@ pause:
   {
     const gchar *reason = gst_flow_get_name (ret);
 
-    if (ret == GST_FLOW_UNEXPECTED) {
+    if (ret == GST_FLOW_EOS) {
       /* perform EOS logic, FIXME, segment seek? */
       gst_pad_push_event (pad, gst_event_new_eos ());
-    } else  if (ret < GST_FLOW_UNEXPECTED || ret == GST_FLOW_NOT_LINKED) {
+    } else  if (ret < GST_FLOW_EOS || ret == GST_FLOW_NOT_LINKED) {
       /* for fatal errors we post an error message */
       GST_ELEMENT_ERROR (siddecfp, STREAM, FAILED, (NULL), ("streaming task paused, reason %s", reason));
       gst_pad_push_event (pad, gst_event_new_eos ());
@@ -352,6 +403,7 @@ static gboolean
 start_play_tune (GstSidDecfp * siddecfp)
 {
   gboolean res;
+  GstSegment segment;
 
   siddecfp->tune=new SidTune(NULL);
 
@@ -378,12 +430,14 @@ start_play_tune (GstSidDecfp * siddecfp)
 
   update_tags (siddecfp);
 
-  gst_pad_push_event (siddecfp->srcpad, gst_event_new_new_segment (FALSE, 1.0, GST_FORMAT_TIME, 0, -1, 0));
+  gst_segment_init (&segment, GST_FORMAT_TIME);
+
+  gst_pad_push_event (siddecfp->srcpad, gst_event_new_segment (&segment));
   siddecfp->total_bytes = 0;
 
   siddecfp->engine->fastForward (100);
 
-  res = gst_pad_start_task (siddecfp->srcpad, (GstTaskFunction) play_loop, siddecfp->srcpad);
+  res = gst_pad_start_task (siddecfp->srcpad, (GstTaskFunction) play_loop, siddecfp->srcpad, NULL);
   return res;
 
   /* ERRORS */
@@ -416,51 +470,47 @@ could_not_set_config:
 }
 
 static gboolean
-gst_siddecfp_sink_event (GstPad * pad, GstEvent * event)
+gst_siddecfp_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
 {
   GstSidDecfp *siddecfp;
   gboolean res;
 
-  siddecfp = GST_SIDDECFP (gst_pad_get_parent (pad));
+  siddecfp = GST_SIDDECFP (parent);
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_EOS:
       res = start_play_tune (siddecfp);
       break;
-    case GST_EVENT_NEWSEGMENT:
-      res = FALSE;
+    case GST_EVENT_SEGMENT:
+      res = TRUE;
       break;
     default:
-      res = FALSE;
+      res = TRUE;
       break;
   }
   gst_event_unref (event);
-  gst_object_unref (siddecfp);
 
   return res;
 }
 
 static GstFlowReturn
-gst_siddecfp_chain (GstPad * pad, GstBuffer * buffer)
+gst_siddecfp_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
 {
   GstSidDecfp *siddecfp;
   guint64 size;
 
-  siddecfp = GST_SIDDECFP (gst_pad_get_parent (pad));
+  siddecfp = GST_SIDDECFP (parent);
 
-  size = GST_BUFFER_SIZE (buffer);
+  size = gst_buffer_get_size (buffer);
   if (siddecfp->tune_len + size > SIDTUNE_MAX_FILELEN)
     goto overflow;
 
-  memcpy (siddecfp->tune_buffer + siddecfp->tune_len, GST_BUFFER_DATA (buffer), size);
+  gst_buffer_extract (buffer, 0, siddecfp->tune_buffer + siddecfp->tune_len, size);
   siddecfp->tune_len += size;
-
   gst_buffer_unref (buffer);
-  gst_object_unref (siddecfp);
 
   return GST_FLOW_OK;
 
-  /* ERRORS */
 overflow:
   {
     GST_ELEMENT_ERROR (siddecfp, STREAM, DECODE, (NULL), ("Input data bigger than allowed buffer size"));
@@ -541,7 +591,7 @@ gst_siddecfp_src_convert (GstPad * pad, GstFormat src_format, gint64 src_value, 
 }
 
 static gboolean
-gst_siddecfp_src_event (GstPad * pad, GstEvent * event)
+gst_siddecfp_src_event (GstPad * pad, GstObject * parent, GstEvent * event)
 {
   gboolean res = FALSE;
   GstSidDecfp *siddecfp;
@@ -554,13 +604,11 @@ gst_siddecfp_src_event (GstPad * pad, GstEvent * event)
   }
   gst_event_unref (event);
 
-  gst_object_unref (siddecfp);
-
   return res;
 }
 
 static gboolean
-gst_siddecfp_src_query (GstPad * pad, GstQuery * query)
+gst_siddecfp_src_query (GstPad * pad, GstObject * parent, GstQuery * query)
 {
   gboolean res = TRUE;
   GstSidDecfp *siddecfp;
@@ -583,17 +631,15 @@ gst_siddecfp_src_query (GstPad * pad, GstQuery * query)
       break;
     }
     default:
-      res = gst_pad_query_default (pad, query);
+      res = gst_pad_query_default (pad, parent, query);
       break;
   }
-  gst_object_unref (siddecfp);
 
   return res;
 }
 
 static void
-gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value,
-    GParamSpec * pspec)
+gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value, GParamSpec * pspec)
 {
   GstSidDecfp *siddecfp = GST_SIDDECFP (object);
 
@@ -627,8 +673,7 @@ gst_siddecfp_set_property (GObject * object, guint prop_id, const GValue * value
 }
 
 static void
-gst_siddecfp_get_property (GObject * object, guint prop_id, GValue * value,
-    GParamSpec * pspec)
+gst_siddecfp_get_property (GObject * object, guint prop_id, GValue * value, GParamSpec * pspec)
 {
   GstSidDecfp *siddecfp = GST_SIDDECFP (object);
 
@@ -671,6 +716,6 @@ plugin_init (GstPlugin * plugin)
 
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
-    "siddecfp",
+    siddecfp,
     "Uses libsidplayfp to decode .sid files",
     plugin_init, VERSION, "GPL", "gst-siddecfp", "na");

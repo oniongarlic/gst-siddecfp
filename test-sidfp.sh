@@ -1,6 +1,6 @@
 #!/bin/sh
 F=$1
-GSL=gst-launch-0.10
+GSL=gst-launch-1.0
 
 case "$2" in
 tune)
